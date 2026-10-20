@@ -1,0 +1,19 @@
+# Never commit game files, keys or anything built from them
+*.xci
+*.nsp
+*.nca
+*.nso
+*.keys
+*.zs
+*.bin
+*.png
+totk-build/
+gen/
+data/
+extract/
+romfs/
+exefs/
+build/
+dist/
+__pycache__/
+*.o

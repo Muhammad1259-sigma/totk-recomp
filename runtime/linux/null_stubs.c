@@ -8,6 +8,12 @@
 volatile int g_debug_frame_request;              // totk_hooks.c: hle_hid.cpp F9
 bool g_debug_frame;                              // exec.c: objects.c queue logging
 int vk_precompile_recorded_progress(int *done, int *total) { (void)done; (void)total; return 0; }   // exec.c: hle_osd.cpp banner
+// exec.c warm-up / "play now" (hle_hid.cpp, hle_osd.cpp, hle_vi.cpp): no warm-up without the Vulkan backend
+int vk_precompile_warmup_active(void) { return 0; }
+void vk_precompile_play_now(void) {}
+int vk_precompile_warmup_progress(int *done, int *total) { (void)done; (void)total; return 0; }
+uint64_t vk_scene_idle_frames(void) { return 0; }   // exec.c: presents since the 3D scene was drawn (pause-screen checks)
+void renderer_fence_submit(void) {}                 // exec.c: objects.c nvnQueueFenceSync
 
 // Async execute (exec.c): never on here, so objects.c takes its synchronous paths; backend_async_call runs the callback right away
 // like the synchronous mode of the real one.

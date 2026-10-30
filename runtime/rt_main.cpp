@@ -240,7 +240,8 @@ static u64 guest_fn_of(u64 rip) {      // guest offset; sdk functions are tagged
         for (u64 i = 0; i < g_s_ftab_count; i++) g_fnaddr.push_back({ (u64)g_s_ftab_init[i].fn, g_s_ftab_init[i].off | (1ull << 40) });
         std::sort(g_fnaddr.begin(), g_fnaddr.end());
     }
-    auto it = std::upper_bound(g_fnaddr.begin(), g_fnaddr.end(), std::make_pair(rip, ~0ull));
+    std::pair<u64, u64> key{rip, static_cast<u64>(~0ull)};
+    auto it = std::upper_bound(g_fnaddr.begin(), g_fnaddr.end(), key);
     return it == g_fnaddr.begin() ? ~0ull : std::prev(it)->second;
 }
 

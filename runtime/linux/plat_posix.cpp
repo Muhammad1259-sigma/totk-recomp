@@ -24,6 +24,7 @@
 #include "plat_posix.h"
 #include <dirent.h>
 #include <dlfcn.h>
+#include <drm/amdgpu_drm.h>
 #include <execinfo.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -513,7 +514,8 @@ unsigned long long rt_posix_exe_base(void) { return (unsigned long long)(uintptr
 // in use, VRAM 1016/1024 MB; the Deck lagged as a whole and could not suspend. A GTT buffer object allocated by the driver has
 // none of this: its pages are not on the LRU, so reclaim and compaction leave them alone. rt_gpu_bo_map puts one at the address
 // of an existing reservation (MAP_FIXED over it, before the game writes there), and exec.c imports it into Vulkan by dma-buf.
-// Only with exactly one DRM render node and it amdgpu (the Deck); TOTK_GPU_BO=0 turns it off, =1 allows several render nodes.
+// Only on an amdgpu render node: the only node (the Deck) or, with several, the first discrete amdgpu (a desktop with an iGPU);
+// TOTK_GPU_BO=0 turns it off, =1 takes the first amdgpu node whatever the others are.
 namespace {
 struct RtDrmVersion { int major, minor, patch; size_t name_len; char* name; size_t date_len; char* date; size_t desc_len; char* desc; };
 struct RtAmdGemCreate { uint64_t bo_size, alignment, domains, domain_flags; };   // union drm_amdgpu_gem_create (out: u32 handle)
@@ -525,12 +527,22 @@ GpuBlock g_gpu_blocks[8];
 int g_gpu_nblocks, g_gpu_fd = -2;
 std::mutex g_gpu_mu;
 
+// Not an APU (AMDGPU_IDS_FLAGS_FUSION): with several GPUs, device.c pick_device renders with the discrete one.
+bool amdgpu_discrete(int fd) {
+    drm_amdgpu_info_device dev = {};
+    drm_amdgpu_info q = {};
+    q.return_pointer = (uint64_t)(uintptr_t)&dev;
+    q.return_size = sizeof dev;
+    q.query = AMDGPU_INFO_DEV_INFO;
+    return ioctl(fd, DRM_IOCTL_AMDGPU_INFO, &q) == 0 && !(dev.ids_flags & AMDGPU_IDS_FLAGS_FUSION);
+}
+
 int gpu_node(void) {   // the amdgpu render node, or -1 (under g_gpu_mu)
     if (g_gpu_fd != -2) return g_gpu_fd;
     g_gpu_fd = -1;
     const char* e = getenv("TOTK_GPU_BO");
     if (e && *e == '0') { printf("[gpu] driver-owned guest memory off (TOTK_GPU_BO=0)\n"); return -1; }
-    int amd = -1, nodes = 0;
+    int amd = -1, discrete = -1, nodes = 0;
     for (int i = 128; i < 192; i++) {
         char p[32]; snprintf(p, sizeof p, "/dev/dri/renderD%d", i);
         int fd = open(p, O_RDWR | O_CLOEXEC);
@@ -538,13 +550,20 @@ int gpu_node(void) {   // the amdgpu render node, or -1 (under g_gpu_mu)
         nodes++;
         char name[32] = {0};
         RtDrmVersion v = {}; v.name = name; v.name_len = sizeof name - 1;
-        if (ioctl(fd, _IOWR('d', 0x00, RtDrmVersion), &v) == 0 && !strcmp(name, "amdgpu") && amd < 0) amd = fd;
-        else close(fd);
+        bool is_amd = ioctl(fd, _IOWR('d', 0x00, RtDrmVersion), &v) == 0 && !strcmp(name, "amdgpu");
+        if (is_amd && amd < 0) amd = fd;
+        if (is_amd && discrete < 0 && amdgpu_discrete(fd)) discrete = fd;
+        if (fd != amd && fd != discrete) close(fd);
     }
+    // TRADEOFF: assumes pick_device lands on the discrete amdgpu taken here; LARECOMP_GPU naming another GPU needs TOTK_GPU_BO=0.
+    // Matching the Vulkan device's render node (VK_EXT_physical_device_drm) would remove the assumption.
     if (amd >= 0 && (nodes == 1 || (e && *e == '1'))) g_gpu_fd = amd;
-    else if (amd >= 0) close(amd);
-    printf("[gpu] %d render node(s), amdgpu %s: guest heap / alias window %s\n", nodes, amd >= 0 ? "yes" : "no",
-           g_gpu_fd >= 0 ? "in driver-owned GTT buffers" : "stay host memory (host-pointer import)");
+    else if (discrete >= 0) g_gpu_fd = discrete;
+    else g_gpu_fd = -1;
+    if (amd >= 0 && amd != g_gpu_fd) close(amd);
+    if (discrete >= 0 && discrete != amd && discrete != g_gpu_fd) close(discrete);
+    printf("[gpu] %d render node(s), amdgpu %s, discrete amdgpu %s: guest heap / alias window %s\n", nodes, amd >= 0 ? "yes" : "no",
+           discrete >= 0 ? "yes" : "no", g_gpu_fd >= 0 ? "in driver-owned GTT buffers" : "stay host memory (host-pointer import)");
     return g_gpu_fd;
 }
 }  // namespace

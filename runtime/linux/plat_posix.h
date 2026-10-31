@@ -21,7 +21,7 @@ void rt_threads_dump(int bt_tid);       // per-thread kernel waits + a backtrace
 // GPU-owned guest memory (amdgpu only): replaces [addr, addr + size) of an existing reservation with a driver-owned GTT buffer
 // mapped at the same address (prot PROT_NONE or PROT_READ | PROT_WRITE). Returns its dma-buf fd, or -1 (keep host memory).
 int rt_gpu_bo_map(void* addr, size_t size, int prot);
-int rt_gpu_bo_available(void);   // 1 = rt_gpu_bo_map can work here (one render node, amdgpu, TOTK_GPU_BO not 0)
+int rt_gpu_bo_available(void);   // 1 = rt_gpu_bo_map can work here (amdgpu: the only render node or a discrete one, TOTK_GPU_BO not 0)
 // dma-buf fd of the block that starts at addr and covers size bytes (its size in *block_size), or -1
 int rt_gpu_bo_find(unsigned long long addr, unsigned long long size, unsigned long long* block_size);
 // number of write-watch faults handled / mprotect failures (stats line)
